@@ -5,6 +5,7 @@ import Login from "./components/Login";
 import ChallengeGenerator from "./components/ChallengeGenerator";
 import SubmitSolution from "./components/SolutionEvaluator";
 import ProtectedRoute from "./components/ProtectedRoute"; // Import the new ProtectedRoute component
+import Profile from "./components/Profile";
 import "./App.css";
 
 const App = () => {
@@ -27,6 +28,9 @@ const App = () => {
               <li>
                 <Link to="/submit-solution" className="nav-link">Submit Solution</Link>
               </li>
+              <li>
+                <Link to="/profile" className="nav-link">Profile</Link>
+              </li>
             </ul>
           </nav>
         </header>
@@ -48,6 +52,14 @@ const App = () => {
               element={
                 <ProtectedRoute>
                   <SubmitSolution />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/profile"
+              element={
+                <ProtectedRoute>
+                  <Profile />
                 </ProtectedRoute>
               }
             />

@@ -17,7 +17,8 @@ from passlib.context import CryptContext
 from fastapi_jwt_auth import AuthJWT
 from fastapi_jwt_auth.exceptions import AuthJWTException
 from pydantic import BaseSettings
-
+from uuid import uuid4
+from datetime import timedelta 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 class Settings(BaseSettings):
@@ -119,19 +120,35 @@ async def generate_challenge(request: ChallengeRequest):
             ]
         )
         challenge = response['choices'][0]['message']['content'].strip()
-        latest_challenge = challenge  # Store the latest challenge
+        latest_challenge = {
+            "challenge": challenge,
+            "topic": request.topic,
+            "difficulty": request.difficulty
+        }
         return {"challenge": challenge}
     except Exception as e:
         print(f"Detailed Error: {e}")
         raise HTTPException(status_code=500, detail="Error generating challenge.")
 
 @app.post("/api/submit-solution")
-async def submit_solution(request: SolutionSubmission):
-    global latest_challenge  # Reference the global variable
+async def submit_solution(
+    request: SolutionSubmission, 
+    Authorize: AuthJWT = Depends(), 
+    db: Session = Depends(get_db)
+):
+    global latest_challenge
+
+    # Validate that a challenge exists
     if not latest_challenge:
         raise HTTPException(status_code=400, detail="No challenge has been generated yet.")
 
     try:
+        # Ensure user is authenticated
+        Authorize.jwt_required()
+        user_id = Authorize.get_jwt_subject()
+        topic = latest_challenge.get("topic", "unknown")
+        difficulty = latest_challenge.get("difficulty", "unknown")
+        # Process the OpenAI validation
         response = openai.ChatCompletion.create(
             model="gpt-4",
             messages=[
@@ -140,12 +157,27 @@ async def submit_solution(request: SolutionSubmission):
             ]
         )
         feedback = response['choices'][0]['message']['content'].strip()
+
+        # Determine status
+        status = "Solved" if "correct" in feedback.lower() else "Failed"
+
+        # Store the result in the database
+        db.execute(solved_challenges.insert().values(
+            user_id=user_id,  # Use user_id from JWT token
+            challenge_id=str(uuid4()),
+            topic=topic,  # Replace with actual topic
+            difficulty=difficulty,  # Replace with actual difficulty
+            language=request.language,
+            status=status,
+            submitted_at=func.now(),
+        ))
+        db.commit()
+
         return {"feedback": feedback}
-    except openai.error.OpenAIError as e:
-        print(f"OpenAI API Error: {e}")
-        raise HTTPException(status_code=500, detail="OpenAI API Error")
     except Exception as e:
+        import traceback
         print(f"Unexpected Error: {e}")
+        print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Unexpected Error: {e}")
 
 @app.post("/api/register")
@@ -164,8 +196,35 @@ async def login_user(request: LoginRequest, Authorize: AuthJWT = Depends(), db: 
     user = db.execute(users.select().where(users.c.username == request.username)).fetchone()
     if not user or not pwd_context.verify(request.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid username or password")
-    access_token = Authorize.create_access_token(subject=str(user.id))
-    return {"access_token": access_token}
+    expires = timedelta(hours=2)  # Adjust the expiration time as needed
+    access_token = Authorize.create_access_token(subject=str(user.id), expires_time=expires)
+    return {"access_token": access_token}    
+
+@app.get("/api/user-history")
+async def get_user_history(Authorize: AuthJWT = Depends(), db: Session = Depends(get_db)):
+    try:
+        # Ensure the user is authenticated
+        Authorize.jwt_required()
+        user_id = Authorize.get_jwt_subject()
+        
+        # Fetch the user's challenge history
+        result = db.execute(solved_challenges.select().where(solved_challenges.c.user_id == user_id)).fetchall()
+        history = [
+            {
+                "challenge_id": row.challenge_id,
+                "topic": row.topic,
+                "difficulty": row.difficulty,
+                "language": row.language,
+                "status": row.status,
+                "submitted_at": row.submitted_at,
+            }
+            for row in result
+        ]
+        return {"history": history}
+    except Exception as e:
+        print(f"Error fetching user history: {e}")
+        raise HTTPException(status_code=500, detail="Unable to fetch user history")
+
 
 # Serve React app for non-API routes
 # @app.get("/{full_path:path}")

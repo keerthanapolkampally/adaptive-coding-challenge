@@ -5,13 +5,31 @@ const SubmitSolution = () => {
   const [solution, setSolution] = useState('');
   const [feedback, setFeedback] = useState('');
   const [language, setLanguage] = useState('python'); // Default language
-
+  
   const submitSolution = async () => {
     try {
-      const response = await axios.post('http://127.0.0.1:8000/api/submit-solution', {
-        solution,
-        language, // Include language in the payload
-      });
+      // Retrieve the token from localStorage (or wherever you store it after login)
+      const token = localStorage.getItem('access_token');
+      if (!token) {
+        alert('You must be logged in to submit a solution.');
+        return;
+      }
+  
+      // Send the solution with the Authorization header
+      const response = await axios.post(
+        'http://127.0.0.1:8000/api/submit-solution',
+        {
+          solution,
+          language, // Include language in the payload
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`, // Pass the token in the Authorization header
+          },
+        }
+      );
+  
+      // Handle the response
       if (response.data && response.data.feedback) {
         setFeedback(response.data.feedback);
       } else {
@@ -19,10 +37,13 @@ const SubmitSolution = () => {
       }
     } catch (error) {
       console.error('Error submitting solution:', error);
-      alert('Failed to submit solution. Please ensure the backend is running and accessible.');
+      if (error.response && error.response.status === 401) {
+        alert('Authentication error. Please log in again.');
+      } else {
+        alert('Failed to submit solution. Please ensure the backend is running and accessible.');
+      }
     }
   };
-
   return (
     <div style={{ padding: '20px' }}>
       <h2>Submit Your Solution</h2>

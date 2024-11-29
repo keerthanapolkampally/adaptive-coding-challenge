@@ -13,6 +13,6 @@ CREATE TABLE solved_challenges (
     topic VARCHAR(100),
     difficulty VARCHAR(20),
     language VARCHAR(50),
-    status VARCHAR(20),
+    status VARCHAR(20), -- Solved/Failed/In Progress
     submitted_at TIMESTAMP DEFAULT NOW()
 );
