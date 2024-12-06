@@ -1,79 +1,86 @@
-import React, { useState } from 'react';
-import axios from 'axios';
+import React, { useState, useEffect } from "react";
+import axios from "axios";
 
 const SubmitSolution = () => {
-  const [solution, setSolution] = useState('');
-  const [feedback, setFeedback] = useState('');
-  const [language, setLanguage] = useState('python'); // Default language
-  
-  const submitSolution = async () => {
-    try {
-      // Retrieve the token from localStorage (or wherever you store it after login)
-      const token = localStorage.getItem('access_token');
-      if (!token) {
-        alert('You must be logged in to submit a solution.');
-        return;
+  const [challenge, setChallenge] = useState(null); // Holds the challenge to solve
+  const [solution, setSolution] = useState(""); // User's solution
+  const [language, setLanguage] = useState("python"); // Selected language
+
+  // Fetch selected challenge from local storage
+  useEffect(() => {
+    const fetchChallenge = async () => {
+      const savedChallenge = JSON.parse(localStorage.getItem("selected_challenge"));
+      if (savedChallenge) {
+        setChallenge(savedChallenge); // Use selected challenge from local storage
       }
-  
-      // Send the solution with the Authorization header
+    };
+
+    fetchChallenge(); // Call fetchChallenge when the component mounts
+  }, []);
+
+  // Submit the solution
+  const handleSolutionSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const token = localStorage.getItem("access_token");
       const response = await axios.post(
-        'http://127.0.0.1:8000/api/submit-solution',
+        "http://127.0.0.1:8000/api/submit-solution",
         {
+          challenge_id: challenge.id, // Use the selected challenge ID
           solution,
-          language, // Include language in the payload
+          language,
         },
         {
           headers: {
-            Authorization: `Bearer ${token}`, // Pass the token in the Authorization header
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
           },
         }
       );
-  
-      // Handle the response
-      if (response.data && response.data.feedback) {
-        setFeedback(response.data.feedback);
-      } else {
-        throw new Error('Unexpected response structure from backend.');
-      }
+      alert(response.data.feedback); // Show feedback from the backend
     } catch (error) {
-      console.error('Error submitting solution:', error);
-      if (error.response && error.response.status === 401) {
-        alert('Authentication error. Please log in again.');
-      } else {
-        alert('Failed to submit solution. Please ensure the backend is running and accessible.');
-      }
+      console.error("Failed to submit solution:", error);
+      alert("Failed to submit the solution. Please try again.");
     }
   };
+
   return (
-    <div style={{ padding: '20px' }}>
+    <div>
       <h2>Submit Your Solution</h2>
-      <textarea
-        value={solution}
-        onChange={(e) => setSolution(e.target.value)}
-        placeholder="Paste your solution code here"
-        style={{ width: '100%', height: '150px' }}
-      />
-      <br />
-      <label htmlFor="language-select">Select Language:</label>
-      <select
-        id="language-select"
-        value={language}
-        onChange={(e) => setLanguage(e.target.value)}
-        style={{ margin: '10px', padding: '5px' }}
-      >
-        <option value="python">Python</option>
-        <option value="javascript">JavaScript</option>
-        <option value="java">Java</option>
-        <option value="c++">C++</option>
-        <option value="c">C</option>
-      </select>
-      <br />
-      <button onClick={submitSolution}>Submit Solution</button>
-      {feedback && (
+      {challenge ? (
         <div>
-          <h3>Feedback:</h3>
-          <pre>{feedback}</pre>
+          <h3>{challenge.title}</h3>
+          <p>{challenge.description}</p>
+          <form onSubmit={handleSolutionSubmit}>
+            <div>
+              <label htmlFor="language">Language:</label>
+              <select
+                id="language"
+                value={language}
+                onChange={(e) => setLanguage(e.target.value)}
+              >
+                <option value="python">Python</option>
+                <option value="javascript">JavaScript</option>
+                <option value="java">Java</option>
+                <option value="cpp">C++</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="solution">Your Solution:</label>
+              <textarea
+                id="solution"
+                value={solution}
+                onChange={(e) => setSolution(e.target.value)}
+                rows="10"
+                cols="50"
+                placeholder="Write your solution here..."
+              ></textarea>
+            </div>
+            <button type="submit">Submit Solution</button>
+          </form>
         </div>
+      ) : (
+        <p>Loading challenge... Please wait.</p>
       )}
     </div>
   );

@@ -6,14 +6,21 @@ import ChallengeGenerator from "./components/ChallengeGenerator";
 import SubmitSolution from "./components/SolutionEvaluator";
 import ProtectedRoute from "./components/ProtectedRoute"; // Import the new ProtectedRoute component
 import Profile from "./components/Profile";
+import Recommendations from "./components/Recommendations";
 import "./App.css";
 
 const App = () => {
+  // const isAuthenticated = !!localStorage.getItem("access_token"); // Check if user is logged in
+
+  // const handleLogout = () => {
+  //   localStorage.removeItem("access_token"); // Remove token from storage
+  //   window.location.href = "/login"; // Redirect to login page
+  // };
   return (
     <Router>
       <div className="app-container">
         <header className="navbar">
-          <h1 className="app-title">Adaptive Coding Challenge</h1>
+          <h1 className="app-title">Adaptive Coding Challenge Generator</h1>
           <nav>
             <ul className="nav-links">
               <li>
@@ -26,11 +33,14 @@ const App = () => {
                 <Link to="/generate-challenge" className="nav-link">Generate Challenge</Link>
               </li>
               <li>
-                <Link to="/submit-solution" className="nav-link">Submit Solution</Link>
+                    <Link to="/recommendations" className="nav-link">Recommendations</Link>
               </li>
               <li>
                 <Link to="/profile" className="nav-link">Profile</Link>
               </li>
+              {/* <li>
+                    <button onClick={handleLogout} className="nav-link logout-btn">Logout</button>
+              </li> */}
             </ul>
           </nav>
         </header>
@@ -48,10 +58,10 @@ const App = () => {
               }
             />
             <Route
-              path="/submit-solution"
+              path="/recommendations"
               element={
                 <ProtectedRoute>
-                  <SubmitSolution />
+                  <Recommendations />
                 </ProtectedRoute>
               }
             />
