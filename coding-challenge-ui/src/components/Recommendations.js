@@ -26,6 +26,7 @@ const Recommendations = () => {
 
   const selectChallenge = async (challengeId) => {
     setIsLoading(true);
+    console.log("Selecting Challenge ID:", challengeId);
     try {
       const token = localStorage.getItem("access_token");
       const response = await axios.post(
@@ -33,26 +34,34 @@ const Recommendations = () => {
         { challenge_id: challengeId },
         { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } }
       );
+      console.log("Response from select challenge:", response.data);
+  
+      // Set selected challenge details
       setSelectedChallenge({
         id: response.data.challenge.id,
         title: response.data.challenge.title,
         description: response.data.challenge.description,
         from_database: response.data.challenge.from_database || false,
       });
-      setIsLoading(false);
     } catch (error) {
       console.error("Failed to select challenge:", error.response?.data || error.message);
       alert("Failed to select the challenge. Please try again.");
+    } finally {
       setIsLoading(false);
     }
   };
-
+  
   const submitSolution = async (e) => {
     e.preventDefault();
     if (!selectedChallenge) {
       alert("Please select a challenge before submitting a solution.");
       return;
     }
+    console.log("Submit Payload:", {
+      challenge_id: selectedChallenge?.id,
+      solution,
+      language,
+    });
     try {
       const token = localStorage.getItem("access_token");
       const response = await axios.post(
@@ -65,13 +74,14 @@ const Recommendations = () => {
         },
         { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } }
       );
+      console.log("Submit Response:", response.data);
       setSubmissionFeedback(response.data.feedback);
     } catch (error) {
       console.error("Error submitting solution:", error.response?.data || error.message);
       setSubmissionFeedback("Failed to submit the solution. Please try again.");
     }
   };
-
+  
   return (
     <div>
       <h2>Recommended Challenges</h2>

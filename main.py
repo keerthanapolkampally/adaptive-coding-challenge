@@ -273,11 +273,10 @@ async def submit_solution(
     db: Session = Depends(get_db),
 ):
     try:
-        # Ensure user is authenticated
         Authorize.jwt_required()
         user_id = Authorize.get_jwt_subject()
 
-        # Retrieve the challenge description and validate challenge association
+        # Verify the challenge is associated with the user
         challenge = db.execute(
             text("""
                 SELECT c.description
@@ -312,10 +311,10 @@ Does this solution solve the challenge correctly? Provide feedback.
         )
         feedback = response['choices'][0]['message']['content'].strip()
 
-        # Determine the status based on feedback
+        # Determine the status
         status = "Solved" if "correct" in feedback.lower() else "Failed"
 
-        # Update or insert the solution submission into `solved_challenges`
+        # Update the status in solved_challenges
         db.execute(
             text("""
                 UPDATE solved_challenges
@@ -349,17 +348,21 @@ async def recommend_challenges(Authorize: AuthJWT = Depends(), db: Session = Dep
         start_time = time.time()
         Authorize.jwt_required()
         user_id = Authorize.get_jwt_subject()
+
         # Fetch solved challenges
         solved_challenges_data = db.execute(
             text("SELECT challenge_id FROM solved_challenges WHERE user_id = :user_id"),
             {"user_id": user_id},
         ).fetchall()
-        
-        if solved_challenges_data:
-            solved_ids = [row[0] for row in solved_challenges_data]
+
+        solved_ids = [row[0] for row in solved_challenges_data] if solved_challenges_data else []
+
+        # Prepare recommendations
+        recommendations = []
+        if solved_ids:
             solved_descriptions = db.execute(
                 text("SELECT description FROM challenges WHERE id = ANY(:ids)"),
-                {"ids": list(solved_ids)},  # Use list to avoid tuple-related issues
+                {"ids": list(solved_ids)},  # Convert tuple to list for compatibility
             ).fetchall()
             solved_descriptions = [row[0] for row in solved_descriptions]
 
@@ -373,7 +376,7 @@ async def recommend_challenges(Authorize: AuthJWT = Depends(), db: Session = Dep
             Recommend 3 new unsolved coding challenges similar to the descriptions that user has solved for the user to learn. Provide the recommendations in the following JSON format:
             [
                 {{
-                    "id": str(uuid.uuid4()),
+                    "id": "generated-uuid", # Use Valid UUID format 
                     "title": "Challenge Title",
                     "description": "Challenge Description",
                     "examples": ["Example 1", "Example 2"],
@@ -382,9 +385,6 @@ async def recommend_challenges(Authorize: AuthJWT = Depends(), db: Session = Dep
                     "why_recommended": "Reason"
                 }}
             ]
-            Ensure the output is valid JSON and uses double quotes for all keys and string values. Make sure the formatting of JSON is correct. 
-            Also, do not have anything unfinished. Please make sure everything is in place and in correct format. Please do not have any unterminated strings. 
-            Let the examples be simple if it is taking up more time or processing. Let the description of the challenge be as clear as possible and also examples should be like input, output.
             """
             response = openai.ChatCompletion.create(
                 model="gpt-4",
@@ -394,6 +394,7 @@ async def recommend_challenges(Authorize: AuthJWT = Depends(), db: Session = Dep
                 ],
                 max_tokens=1000,
             )
+
             print(f"Raw LLM response: {response['choices'][0]['message']['content']}")
             try:
                 recommendations = json.loads(response['choices'][0]['message']['content'])
@@ -402,23 +403,41 @@ async def recommend_challenges(Authorize: AuthJWT = Depends(), db: Session = Dep
                 raise HTTPException(status_code=500, detail="Failed to parse LLM response")
         else:
             # Fallback if no solved challenges
-            recommendations = db.execute(
-                text("SELECT id, description FROM challenges LIMIT 5")
-            ).fetchall()
             recommendations = [
                 {
-                    "id": str(uuid.uuid4()),
-                    "title": f"Challenge {row[0]}",
-                    "description": row[1],
-                    "examples": [],
+                    "id": str(uuid4()),
+                    "title": f"Fallback Challenge {i + 1}",
+                    "description": f"This is a fallback challenge {i + 1}.",
+                    "examples": ["Example input", "Example output"],
                     "topic": "General",
                     "difficulty": "Medium",
-                    "why_recommended": "Fallback recommendation.",
+                    "why_recommended": "This is a fallback recommendation.",
                 }
-                for row in recommendations
+                for i in range(3)  # Example: 3 fallback challenges
             ]
-        elapsed_time = time.time() - start_time  # Calculate elapsed time
-        print(f"Time taken for recommended challenges: {elapsed_time:.2f} seconds")  # Debugging
+
+        # Insert recommended challenges into the database
+        for recommendation in recommendations:
+            recommendation["id"] = str(uuid4())
+            db.execute(
+                text("""
+                    INSERT INTO challenges (id, title, description, topic, difficulty)
+                    VALUES (:id, :title, :description, :topic, :difficulty)
+                    ON CONFLICT (id) DO NOTHING
+                """),
+                {
+                    "id": recommendation["id"],
+                    "title": recommendation["title"],
+                    "description": recommendation["description"],
+                    "topic": recommendation["topic"],
+                    "difficulty": recommendation["difficulty"],
+                },
+            )
+        db.commit()
+
+        elapsed_time = time.time() - start_time
+        print(f"Time taken for recommended challenges: {elapsed_time:.2f} seconds")
+
         return {"recommendations": recommendations}
 
     except Exception as e:
@@ -433,28 +452,22 @@ async def select_recommended_challenge(
     db: Session = Depends(get_db),
 ):
     try:
+        # Verify user authentication
         Authorize.jwt_required()
         user_id = Authorize.get_jwt_subject()
 
         # Check if the challenge exists in the `challenges` table
-        result = db.execute(
-            text("SELECT id FROM challenges WHERE id = :id"),
+        challenge = db.execute(
+            text("SELECT id, title, description, topic, difficulty FROM challenges WHERE id = :id"),
             {"id": request.challenge_id},
         ).fetchone()
 
-        if not result:
-            # If the challenge doesn't exist, create a placeholder entry in `challenges`
-            db.execute(
-                text("""
-                    INSERT INTO challenges (id, title, description, topic, difficulty)
-                    VALUES (:id, 'Recommended Challenge', 'Description unavailable', 'General', 'Medium')
-                """),
-                {"id": request.challenge_id},
-            )
-            db.commit()
+        if not challenge:
+            # If the challenge does not exist, log an error and provide user-friendly feedback
+            raise HTTPException(status_code=404, detail=f"Challenge with ID {request.challenge_id} not found in the database.")
 
         # Check if the challenge is already associated with the user
-        existing_association = db.execute(
+        existing_entry = db.execute(
             text("""
                 SELECT id FROM solved_challenges
                 WHERE challenge_id = :challenge_id AND user_id = :user_id
@@ -462,12 +475,13 @@ async def select_recommended_challenge(
             {"challenge_id": request.challenge_id, "user_id": user_id},
         ).fetchone()
 
-        if not existing_association:
-            # Associate the challenge with the user
+        # If not associated, add it to the `solved_challenges` table
+        if not existing_entry:
             db.execute(
                 text("""
                     INSERT INTO solved_challenges (id, user_id, challenge_id, status, submitted_at)
                     VALUES (:id, :user_id, :challenge_id, 'Selected', NOW())
+                    ON CONFLICT DO NOTHING
                 """),
                 {
                     "id": str(uuid4()),
@@ -477,29 +491,24 @@ async def select_recommended_challenge(
             )
             db.commit()
 
-        # Fetch the challenge details to return to the frontend
-        challenge_details = db.execute(
-            text("""
-                SELECT id, title, description, topic, difficulty
-                FROM challenges WHERE id = :id
-            """),
-            {"id": request.challenge_id},
-        ).fetchone()
-
+        # Return the selected challenge details
         return {
             "message": "Challenge selected successfully.",
             "challenge": {
-                "id": challenge_details[0],
-                "title": challenge_details[1],
-                "description": challenge_details[2],
-                "topic": challenge_details[3],
-                "difficulty": challenge_details[4],
+                "id": challenge[0],
+                "title": challenge[1],
+                "description": challenge[2],
+                "topic": challenge[3],
+                "difficulty": challenge[4],
             },
         }
 
+    except HTTPException as http_exc:
+        print(f"HTTPException in select_recommended_challenge: {http_exc.detail}")
+        raise http_exc
     except Exception as e:
         print(f"Error in select_recommended_challenge: {e}")
-        raise HTTPException(status_code=500, detail="Failed to select challenge")
+        raise HTTPException(status_code=500, detail="Failed to select challenge.")
 
 @app.post("/api/register")
 async def register_user(request: RegisterRequest, db: Session = Depends(get_db)):
